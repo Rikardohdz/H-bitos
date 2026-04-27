@@ -30,6 +30,12 @@ import {
   Apple,
   Target,
   AlertCircle,
+  ArrowRight,
+  ChevronDown,
+  ChevronUp,
+  FolderKanban,
+  BarChart2,
+  Lightbulb,
 } from 'lucide-react';
 
 const ICON_MAP = {
@@ -137,6 +143,22 @@ const DEFAULT_MEAL_PLAN = {
       items: [{ id: 'i7', name: 'Leche', amount: '100 ml.' }],
     },
   ],
+};
+
+// ── Proyectos de notas ──
+const PROJECTS = [
+  { id: 'clicmetric', name: 'ClicMetric', icon: 'chart', color: 'cyan' },
+  { id: 'dante', name: 'Dante', icon: 'lightbulb', color: 'amber' },
+];
+
+const PROJECT_ICON_MAP = {
+  chart: BarChart2,
+  lightbulb: Lightbulb,
+};
+
+const PROJECT_COLOR_MAP = {
+  cyan: 'bg-cyan-100 text-cyan-600',
+  amber: 'bg-amber-100 text-amber-600',
 };
 
 const MONTHS = [
@@ -252,6 +274,13 @@ export default function App() {
   const [showMealEd, setShowMealEd] = useState(false);
   const [toast, setToast] = useState(null);
 
+  // ── Proyectos / notas ──
+  const [section, setSection] = useState('personales'); // 'personales' | 'proyectos'
+  const [activeProject, setActiveProject] = useState(PROJECTS[0].id);
+  const [notes, setNotes] = useState({}); // { [projectId]: [{id, title, desc, done, createdAt}] }
+  const [showCompleted, setShowCompleted] = useState({}); // { [projectId]: bool }
+  const [noteEditor, setNoteEditor] = useState(null); // {projectId, note} | null
+
   // ── Cargar datos (con migración desde versión anterior) ──
   useEffect(() => {
     try {
@@ -289,6 +318,8 @@ export default function App() {
       if (lb) setLastBackup(lb);
       const iw = localStorage.getItem('h26_initialWeight');
       if (iw) setInitialWeight(iw);
+      const sn = localStorage.getItem('h26_notes');
+      if (sn) setNotes(JSON.parse(sn));
     } catch (e) {
       console.error(e);
     }
@@ -319,6 +350,9 @@ export default function App() {
   useEffect(() => {
     if (isLoaded) localStorage.setItem('h26_initialWeight', initialWeight);
   }, [initialWeight, isLoaded]);
+  useEffect(() => {
+    if (isLoaded) localStorage.setItem('h26_notes', JSON.stringify(notes));
+  }, [notes, isLoaded]);
 
   const showToast = (msg, type = 'ok') => {
     setToast({ msg, type });
@@ -400,6 +434,63 @@ export default function App() {
     });
   };
 
+  // ── Notas (proyectos) ──
+  const addNote = (projectId) => {
+    const newNote = {
+      id: genId(),
+      title: '',
+      desc: '',
+      done: false,
+      createdAt: new Date().toISOString(),
+    };
+    setNotes((prev) => ({
+      ...prev,
+      [projectId]: [...(prev[projectId] || []), newNote],
+    }));
+    // Abrir directo el editor para que escriba el título
+    setNoteEditor({ projectId, note: newNote, isNew: true });
+  };
+
+  const updateNote = (projectId, noteId, fields) => {
+    setNotes((prev) => ({
+      ...prev,
+      [projectId]: (prev[projectId] || []).map((n) =>
+        n.id === noteId ? { ...n, ...fields } : n
+      ),
+    }));
+  };
+
+  const toggleNoteDone = (projectId, noteId) => {
+    setNotes((prev) => ({
+      ...prev,
+      [projectId]: (prev[projectId] || []).map((n) =>
+        n.id === noteId ? { ...n, done: !n.done } : n
+      ),
+    }));
+  };
+
+  const deleteNote = (projectId, noteId) => {
+    setNotes((prev) => ({
+      ...prev,
+      [projectId]: (prev[projectId] || []).filter((n) => n.id !== noteId),
+    }));
+  };
+
+  const askDeleteNote = (projectId, noteId) => {
+    const note = (notes[projectId] || []).find((n) => n.id === noteId);
+    setConfirm({
+      title: 'Eliminar idea',
+      msg: `¿Eliminar "${note?.title || 'esta idea'}" permanentemente?`,
+      btn: 'Eliminar',
+      action: () => {
+        deleteNote(projectId, noteId);
+        setConfirm(null);
+        setNoteEditor(null);
+        showToast('Idea eliminada');
+      },
+    });
+  };
+
   // ── Backup ──
   const doExport = () => {
     const blob = new Blob(
@@ -413,6 +504,7 @@ export default function App() {
             weightGoal,
             initialWeight,
             mealPlan,
+            notes,
           },
           null,
           2
@@ -443,9 +535,9 @@ export default function App() {
         if (d.habitData) setData(d.habitData);
         if (Array.isArray(d.weightData)) setWeightData(d.weightData);
         if (d.weightGoal !== undefined) setWeightGoal(String(d.weightGoal));
-        if (d.initialWeight !== undefined)
-          setInitialWeight(String(d.initialWeight));
+        if (d.initialWeight !== undefined) setInitialWeight(String(d.initialWeight));
         if (d.mealPlan) setMealPlan(d.mealPlan);
+        if (d.notes && typeof d.notes === 'object') setNotes(d.notes);
         showToast('Backup restaurado');
       } catch {
         showToast('Archivo inválido', 'err');
@@ -467,6 +559,7 @@ export default function App() {
         setWeightGoal('');
         setInitialWeight('');
         setMealPlan(DEFAULT_MEAL_PLAN);
+        setNotes({});
         setConfirm(null);
         setShowSettings(false);
         showToast('Datos reiniciados');
@@ -477,7 +570,7 @@ export default function App() {
   const ts = useRef(null),
     te = useRef(null);
   const onTS = (e) => {
-    if (showSettings || habitEditor || confirm || showMealEd) return;
+    if (showSettings || habitEditor || confirm || showMealEd || noteEditor || section === 'proyectos') return;
     te.current = null;
     ts.current = {
       x: e.targetTouches[0].clientX,
@@ -485,7 +578,7 @@ export default function App() {
     };
   };
   const onTM = (e) => {
-    if (showSettings || habitEditor || confirm || showMealEd) return;
+    if (showSettings || habitEditor || confirm || showMealEd || noteEditor || section === 'proyectos') return;
     te.current = {
       x: e.targetTouches[0].clientX,
       y: e.targetTouches[0].clientY,
@@ -688,8 +781,35 @@ export default function App() {
     >
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap');.font-nunito{font-family:'Nunito',sans-serif;}`}</style>
 
+      {/* ── TABS PRINCIPALES (Personales / Proyectos) ── */}
+      <div className="bg-white pt-9 px-5 pb-2 z-30 relative">
+        <div className="flex gap-2 bg-gray-100 p-1 rounded-2xl">
+          <button
+            onClick={() => setSection('personales')}
+            className={`flex-1 py-2.5 rounded-xl font-black text-sm transition-all ${
+              section === 'personales'
+                ? 'bg-white text-indigo-600 shadow-sm'
+                : 'text-gray-500'
+            }`}
+          >
+            Personales
+          </button>
+          <button
+            onClick={() => setSection('proyectos')}
+            className={`flex-1 py-2.5 rounded-xl font-black text-sm transition-all ${
+              section === 'proyectos'
+                ? 'bg-white text-indigo-600 shadow-sm'
+                : 'text-gray-500'
+            }`}
+          >
+            Proyectos
+          </button>
+        </div>
+      </div>
+
       {/* ── HEADER ── */}
-      <header className="bg-white px-6 pt-10 pb-4 shadow-sm z-20 relative">
+      {section === 'personales' && (
+      <header className="bg-white px-6 pt-2 pb-4 shadow-sm z-20 relative">
         <div className="flex justify-between items-start gap-2">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-1">
@@ -750,9 +870,35 @@ export default function App() {
           </div>
         </div>
       </header>
+      )}
+
+      {/* ── HEADER PROYECTOS ── */}
+      {section === 'proyectos' && (
+        <header className="bg-white px-6 pt-2 pb-4 shadow-sm z-20 relative">
+          <div className="flex justify-between items-start gap-2">
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-bold text-indigo-600 uppercase tracking-wider mb-1">
+                Ideas de contenido
+              </p>
+              <h1 className="text-3xl font-black text-gray-900 tracking-tight truncate">
+                {PROJECTS.find((p) => p.id === activeProject)?.name || 'Proyecto'}
+              </h1>
+            </div>
+            <button
+              onClick={() => setShowSettings(true)}
+              className="p-2 rounded-full bg-gray-100 hover:bg-gray-200 active:scale-95 transition text-gray-600 flex-shrink-0"
+            >
+              <SettingsIcon size={22} strokeWidth={2.5} />
+            </button>
+          </div>
+        </header>
+      )}
 
       {/* ── CONTENIDO ── */}
       <main className="flex-1 overflow-y-auto px-5 py-6 pb-32">
+        {/* === SECCIÓN PERSONALES === */}
+        {section === 'personales' && (
+          <>
         {/* Aviso de backup pendiente (mensual) */}
         {showBackupReminder && (
           <div className="mb-5 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-2xl p-4 flex items-start gap-3">
@@ -1172,293 +1318,247 @@ export default function App() {
           })()}
 
         {/* VISTA 4: PESO */}
-        {viewMode === 4 &&
-          (() => {
-            // Cálculos de progreso
-            const latest =
-              weightData.length > 0
-                ? weightData[weightData.length - 1].weight
-                : null;
-            const initial = parseFloat(initialWeight);
-            const goal = parseFloat(weightGoal);
-            const hasInitial = !isNaN(initial);
-            const hasGoal = !isNaN(goal);
-            const hasLatest = latest !== null;
+        {viewMode === 4 && (() => {
+          // Cálculos de progreso
+          const latest = weightData.length > 0 ? weightData[weightData.length - 1].weight : null;
+          const initial = parseFloat(initialWeight);
+          const goal = parseFloat(weightGoal);
+          const hasInitial = !isNaN(initial);
+          const hasGoal = !isNaN(goal);
+          const hasLatest = latest !== null;
 
-            let lostOrGained = null;
-            let remaining = null;
-            let progressPct = null;
-            let isLoss = true; // true = está bajando de peso, false = está subiendo
+          let lostOrGained = null;
+          let remaining = null;
+          let progressPct = null;
+          let isLoss = true; // true = está bajando de peso, false = está subiendo
 
-            if (hasInitial && hasLatest) {
-              lostOrGained = initial - latest; // positivo = bajó; negativo = subió
-            }
-            if (hasLatest && hasGoal) {
-              remaining = latest - goal; // positivo = todavía pesa más que la meta
-            }
-            if (hasInitial && hasGoal && hasLatest) {
-              isLoss = initial > goal;
-              const totalChange = Math.abs(initial - goal);
-              const doneChange = isLoss
-                ? Math.max(0, initial - latest)
-                : Math.max(0, latest - initial);
-              progressPct =
-                totalChange > 0
-                  ? Math.min(100, Math.round((doneChange / totalChange) * 100))
-                  : 0;
-            }
+          if (hasInitial && hasLatest) {
+            lostOrGained = initial - latest; // positivo = bajó; negativo = subió
+          }
+          if (hasLatest && hasGoal) {
+            remaining = latest - goal; // positivo = todavía pesa más que la meta
+          }
+          if (hasInitial && hasGoal && hasLatest) {
+            isLoss = initial > goal;
+            const totalChange = Math.abs(initial - goal);
+            const doneChange = isLoss
+              ? Math.max(0, initial - latest)
+              : Math.max(0, latest - initial);
+            progressPct = totalChange > 0
+              ? Math.min(100, Math.round((doneChange / totalChange) * 100))
+              : 0;
+          }
 
-            const shown = [...weightData]
-              .reverse()
-              .slice(0, weightHistoryShown);
-            const hasMore = weightData.length > weightHistoryShown;
+          const shown = [...weightData].reverse().slice(0, weightHistoryShown);
+          const hasMore = weightData.length > weightHistoryShown;
 
-            return (
-              <div className="flex flex-col gap-6">
-                {/* 1. Añadir registro */}
-                <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-6">
-                  <h2 className="font-bold text-gray-900 mb-4">
-                    Añadir registro
-                  </h2>
-                  <div className="flex flex-col gap-3">
-                    <div className="flex gap-3">
-                      <div className="flex-1">
-                        <label className="text-xs font-bold text-gray-500 mb-1 block">
-                          Fecha
-                        </label>
-                        <input
-                          type="date"
-                          value={newWeightDate}
-                          onChange={(e) => setNewWeightDate(e.target.value)}
-                          className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 font-semibold text-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                        />
-                      </div>
-                      <div className="w-1/3">
-                        <label className="text-xs font-bold text-gray-500 mb-1 block">
-                          Peso (kg)
-                        </label>
-                        <input
-                          type="number"
-                          step="0.1"
-                          placeholder="0.0"
-                          value={newWeight}
-                          onChange={(e) => setNewWeight(e.target.value)}
-                          className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 font-bold text-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                        />
-                      </div>
-                    </div>
-                    <div>
+          return (
+            <div className="flex flex-col gap-6">
+              {/* 1. Añadir registro */}
+              <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-6">
+                <h2 className="font-bold text-gray-900 mb-4">Añadir registro</h2>
+                <div className="flex flex-col gap-3">
+                  <div className="flex gap-3">
+                    <div className="flex-1">
                       <label className="text-xs font-bold text-gray-500 mb-1 block">
-                        Comentarios (opcional)
+                        Fecha
                       </label>
                       <input
-                        type="text"
-                        placeholder="Ej. después de entrenar..."
-                        value={newWeightComment}
-                        onChange={(e) => setNewWeightComment(e.target.value)}
+                        type="date"
+                        value={newWeightDate}
+                        onChange={(e) => setNewWeightDate(e.target.value)}
                         className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 font-semibold text-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                       />
                     </div>
-                    <button
-                      onClick={addWeight}
-                      disabled={!newWeight}
-                      className="mt-2 w-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 text-white font-bold py-3 rounded-xl transition-all flex justify-center items-center gap-2 active:scale-95"
-                    >
-                      <Plus size={20} /> Guardar peso
-                    </button>
-                  </div>
-                </div>
-
-                {/* 2. Evolución (gráfica) */}
-                <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-6 pb-4">
-                  <div className="flex justify-between items-start mb-4">
-                    <h2 className="font-bold text-gray-900">
-                      Evolución de peso
-                    </h2>
-                    {hasGoal && (
-                      <span className="text-xs font-black bg-emerald-50 text-emerald-700 px-3 py-1 rounded-full flex items-center gap-1">
-                        <Target size={12} /> Meta: {weightGoal} kg
-                      </span>
-                    )}
-                  </div>
-                  {renderChart()}
-                </div>
-
-                {/* 3. Control del progreso */}
-                {(hasInitial || hasGoal || hasLatest) && (
-                  <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-6">
-                    <h2 className="font-bold text-gray-900 mb-4">
-                      Control del progreso
-                    </h2>
-
-                    {/* Fila superior: 3 valores */}
-                    <div className="grid grid-cols-3 gap-3 mb-5">
-                      <div className="bg-gray-50 rounded-2xl p-3 text-center">
-                        <p className="text-[10px] font-black text-gray-500 uppercase tracking-wider mb-1">
-                          Inicio
-                        </p>
-                        <p className="font-black text-gray-900 text-lg">
-                          {hasInitial ? `${initial.toFixed(1)}` : '—'}
-                        </p>
-                        <p className="text-[10px] font-bold text-gray-400">
-                          kg
-                        </p>
-                      </div>
-                      <div className="bg-indigo-50 rounded-2xl p-3 text-center">
-                        <p className="text-[10px] font-black text-indigo-500 uppercase tracking-wider mb-1">
-                          Actual
-                        </p>
-                        <p className="font-black text-indigo-900 text-lg">
-                          {hasLatest ? `${latest.toFixed(1)}` : '—'}
-                        </p>
-                        <p className="text-[10px] font-bold text-indigo-400">
-                          kg
-                        </p>
-                      </div>
-                      <div className="bg-emerald-50 rounded-2xl p-3 text-center">
-                        <p className="text-[10px] font-black text-emerald-600 uppercase tracking-wider mb-1">
-                          Meta
-                        </p>
-                        <p className="font-black text-emerald-900 text-lg">
-                          {hasGoal ? `${goal.toFixed(1)}` : '—'}
-                        </p>
-                        <p className="text-[10px] font-bold text-emerald-500">
-                          kg
-                        </p>
-                      </div>
+                    <div className="w-1/3">
+                      <label className="text-xs font-bold text-gray-500 mb-1 block">
+                        Peso (kg)
+                      </label>
+                      <input
+                        type="number"
+                        step="0.1"
+                        placeholder="0.0"
+                        value={newWeight}
+                        onChange={(e) => setNewWeight(e.target.value)}
+                        className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 font-bold text-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      />
                     </div>
-
-                    {/* Progreso total */}
-                    {progressPct !== null && (
-                      <div className="mb-4">
-                        <div className="flex justify-between items-baseline mb-2">
-                          <span className="text-sm font-bold text-gray-600">
-                            Progreso total
-                          </span>
-                          <span className="text-xl font-black text-indigo-600">
-                            {progressPct}%
-                          </span>
-                        </div>
-                        <div className="w-full bg-gray-100 rounded-full h-3 overflow-hidden">
-                          <div
-                            className="bg-gradient-to-r from-indigo-500 to-emerald-500 h-3 rounded-full transition-all duration-700"
-                            style={{ width: `${progressPct}%` }}
-                          />
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Resumen numérico */}
-                    <div className="flex flex-col gap-2">
-                      {lostOrGained !== null && (
-                        <div className="flex justify-between items-center bg-gray-50 rounded-xl px-4 py-3">
-                          <span className="text-sm font-semibold text-gray-600">
-                            {lostOrGained >= 0
-                              ? 'Kilos perdidos'
-                              : 'Kilos ganados'}
-                          </span>
-                          <span
-                            className={`font-black ${
-                              lostOrGained >= 0
-                                ? 'text-emerald-600'
-                                : 'text-rose-600'
-                            }`}
-                          >
-                            {lostOrGained >= 0 ? '−' : '+'}
-                            {Math.abs(lostOrGained).toFixed(1)} kg
-                          </span>
-                        </div>
-                      )}
-                      {remaining !== null && hasGoal && (
-                        <div className="flex justify-between items-center bg-gray-50 rounded-xl px-4 py-3">
-                          <span className="text-sm font-semibold text-gray-600">
-                            {(isLoss && remaining > 0) ||
-                            (!isLoss && remaining < 0)
-                              ? 'Faltan'
-                              : 'Superada la meta por'}
-                          </span>
-                          <span className="font-black text-gray-900">
-                            {Math.abs(remaining).toFixed(1)} kg
-                          </span>
-                        </div>
-                      )}
-                    </div>
-
-                    {!hasInitial && (
-                      <div className="mt-4 bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-start gap-2">
-                        <AlertCircle
-                          size={16}
-                          className="text-amber-600 flex-shrink-0 mt-0.5"
-                        />
-                        <p className="text-xs text-amber-800 font-semibold">
-                          Configura tu peso inicial en ajustes ⚙️ para ver tu
-                          progreso completo.
-                        </p>
-                      </div>
-                    )}
                   </div>
-                )}
-
-                {/* 4. Historial */}
-                <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-6">
-                  <h2 className="font-bold text-gray-900 mb-4">Historial</h2>
-                  {weightData.length === 0 ? (
-                    <p className="text-sm text-gray-400 text-center py-4">
-                      Sin registros aún.
-                    </p>
-                  ) : (
-                    <>
-                      {shown.map((r) => (
-                        <div
-                          key={r.id}
-                          className="flex justify-between items-center bg-gray-50 p-4 rounded-2xl mb-3"
-                        >
-                          <div>
-                            <div className="flex items-baseline gap-2">
-                              <span className="font-black text-lg text-indigo-900">
-                                {r.weight} kg
-                              </span>
-                              <span className="text-xs font-bold text-gray-400">
-                                {formatDateReadable(r.date)}
-                              </span>
-                            </div>
-                            {r.comment && (
-                              <p className="text-sm text-gray-600 mt-1">
-                                {r.comment}
-                              </p>
-                            )}
-                          </div>
-                          <button
-                            onClick={() => askDeleteWeight(r.id)}
-                            className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors ml-2"
-                          >
-                            <Trash2 size={18} />
-                          </button>
-                        </div>
-                      ))}
-                      {hasMore && (
-                        <button
-                          onClick={() => setWeightHistoryShown((n) => n + 10)}
-                          className="w-full mt-2 py-3 rounded-xl bg-indigo-50 text-indigo-700 font-bold hover:bg-indigo-100 transition active:scale-95"
-                        >
-                          Ver más ({weightData.length - weightHistoryShown}{' '}
-                          restantes)
-                        </button>
-                      )}
-                      {!hasMore && weightData.length > 10 && (
-                        <button
-                          onClick={() => setWeightHistoryShown(10)}
-                          className="w-full mt-2 py-2.5 rounded-xl text-gray-500 font-bold hover:bg-gray-50 text-sm transition"
-                        >
-                          Mostrar menos
-                        </button>
-                      )}
-                    </>
-                  )}
+                  <div>
+                    <label className="text-xs font-bold text-gray-500 mb-1 block">
+                      Comentarios (opcional)
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Ej. después de entrenar..."
+                      value={newWeightComment}
+                      onChange={(e) => setNewWeightComment(e.target.value)}
+                      className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 font-semibold text-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+                  <button
+                    onClick={addWeight}
+                    disabled={!newWeight}
+                    className="mt-2 w-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 text-white font-bold py-3 rounded-xl transition-all flex justify-center items-center gap-2 active:scale-95"
+                  >
+                    <Plus size={20} /> Guardar peso
+                  </button>
                 </div>
               </div>
-            );
-          })()}
+
+              {/* 2. Evolución (gráfica) */}
+              <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-6 pb-4">
+                <div className="flex justify-between items-start mb-4">
+                  <h2 className="font-bold text-gray-900">Evolución de peso</h2>
+                  {hasGoal && (
+                    <span className="text-xs font-black bg-emerald-50 text-emerald-700 px-3 py-1 rounded-full flex items-center gap-1">
+                      <Target size={12} /> Meta: {weightGoal} kg
+                    </span>
+                  )}
+                </div>
+                {renderChart()}
+              </div>
+
+              {/* 3. Control del progreso */}
+              {(hasInitial || hasGoal || hasLatest) && (
+                <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-6">
+                  <h2 className="font-bold text-gray-900 mb-4">Control del progreso</h2>
+
+                  {/* Fila superior: 3 valores */}
+                  <div className="grid grid-cols-3 gap-3 mb-5">
+                    <div className="bg-gray-50 rounded-2xl p-3 text-center">
+                      <p className="text-[10px] font-black text-gray-500 uppercase tracking-wider mb-1">Inicio</p>
+                      <p className="font-black text-gray-900 text-lg">
+                        {hasInitial ? `${initial.toFixed(1)}` : '—'}
+                      </p>
+                      <p className="text-[10px] font-bold text-gray-400">kg</p>
+                    </div>
+                    <div className="bg-indigo-50 rounded-2xl p-3 text-center">
+                      <p className="text-[10px] font-black text-indigo-500 uppercase tracking-wider mb-1">Actual</p>
+                      <p className="font-black text-indigo-900 text-lg">
+                        {hasLatest ? `${latest.toFixed(1)}` : '—'}
+                      </p>
+                      <p className="text-[10px] font-bold text-indigo-400">kg</p>
+                    </div>
+                    <div className="bg-emerald-50 rounded-2xl p-3 text-center">
+                      <p className="text-[10px] font-black text-emerald-600 uppercase tracking-wider mb-1">Meta</p>
+                      <p className="font-black text-emerald-900 text-lg">
+                        {hasGoal ? `${goal.toFixed(1)}` : '—'}
+                      </p>
+                      <p className="text-[10px] font-bold text-emerald-500">kg</p>
+                    </div>
+                  </div>
+
+                  {/* Progreso total */}
+                  {progressPct !== null && (
+                    <div className="mb-4">
+                      <div className="flex justify-between items-baseline mb-2">
+                        <span className="text-sm font-bold text-gray-600">Progreso total</span>
+                        <span className="text-xl font-black text-indigo-600">{progressPct}%</span>
+                      </div>
+                      <div className="w-full bg-gray-100 rounded-full h-3 overflow-hidden">
+                        <div
+                          className="bg-gradient-to-r from-indigo-500 to-emerald-500 h-3 rounded-full transition-all duration-700"
+                          style={{ width: `${progressPct}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Resumen numérico */}
+                  <div className="flex flex-col gap-2">
+                    {lostOrGained !== null && (
+                      <div className="flex justify-between items-center bg-gray-50 rounded-xl px-4 py-3">
+                        <span className="text-sm font-semibold text-gray-600">
+                          {lostOrGained >= 0 ? 'Kilos perdidos' : 'Kilos ganados'}
+                        </span>
+                        <span className={`font-black ${lostOrGained >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                          {lostOrGained >= 0 ? '−' : '+'}{Math.abs(lostOrGained).toFixed(1)} kg
+                        </span>
+                      </div>
+                    )}
+                    {remaining !== null && hasGoal && (
+                      <div className="flex justify-between items-center bg-gray-50 rounded-xl px-4 py-3">
+                        <span className="text-sm font-semibold text-gray-600">
+                          {(isLoss && remaining > 0) || (!isLoss && remaining < 0) ? 'Faltan' : 'Superada la meta por'}
+                        </span>
+                        <span className="font-black text-gray-900">
+                          {Math.abs(remaining).toFixed(1)} kg
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  {!hasInitial && (
+                    <div className="mt-4 bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-start gap-2">
+                      <AlertCircle size={16} className="text-amber-600 flex-shrink-0 mt-0.5" />
+                      <p className="text-xs text-amber-800 font-semibold">
+                        Configura tu peso inicial en ajustes ⚙️ para ver tu progreso completo.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* 4. Historial */}
+              <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-6">
+                <h2 className="font-bold text-gray-900 mb-4">Historial</h2>
+                {weightData.length === 0 ? (
+                  <p className="text-sm text-gray-400 text-center py-4">
+                    Sin registros aún.
+                  </p>
+                ) : (
+                  <>
+                    {shown.map((r) => (
+                      <div
+                        key={r.id}
+                        className="flex justify-between items-center bg-gray-50 p-4 rounded-2xl mb-3"
+                      >
+                        <div>
+                          <div className="flex items-baseline gap-2">
+                            <span className="font-black text-lg text-indigo-900">
+                              {r.weight} kg
+                            </span>
+                            <span className="text-xs font-bold text-gray-400">
+                              {formatDateReadable(r.date)}
+                            </span>
+                          </div>
+                          {r.comment && (
+                            <p className="text-sm text-gray-600 mt-1">
+                              {r.comment}
+                            </p>
+                          )}
+                        </div>
+                        <button
+                          onClick={() => askDeleteWeight(r.id)}
+                          className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors ml-2"
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      </div>
+                    ))}
+                    {hasMore && (
+                      <button
+                        onClick={() => setWeightHistoryShown((n) => n + 10)}
+                        className="w-full mt-2 py-3 rounded-xl bg-indigo-50 text-indigo-700 font-bold hover:bg-indigo-100 transition active:scale-95"
+                      >
+                        Ver más ({weightData.length - weightHistoryShown} restantes)
+                      </button>
+                    )}
+                    {!hasMore && weightData.length > 10 && (
+                      <button
+                        onClick={() => setWeightHistoryShown(10)}
+                        className="w-full mt-2 py-2.5 rounded-xl text-gray-500 font-bold hover:bg-gray-50 text-sm transition"
+                      >
+                        Mostrar menos
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+          );
+        })()}
 
         {/* VISTA 5: PLAN */}
         {viewMode === 5 && (
@@ -1516,9 +1616,145 @@ export default function App() {
             </div>
           </div>
         )}
+          </>
+        )}
+
+        {/* === SECCIÓN PROYECTOS === */}
+        {section === 'proyectos' && (() => {
+          const projectNotes = notes[activeProject] || [];
+          const pending = projectNotes.filter((n) => !n.done);
+          const completed = projectNotes.filter((n) => n.done);
+          const isCompletedOpen = !!showCompleted[activeProject];
+
+          return (
+            <div className="flex flex-col gap-4">
+              {pending.length === 0 && completed.length === 0 ? (
+                <div className="bg-white p-8 rounded-3xl border-2 border-dashed border-gray-200 text-center">
+                  <div className="text-4xl mb-3">💡</div>
+                  <p className="font-black text-gray-900 mb-1">Sin ideas todavía</p>
+                  <p className="text-sm text-gray-500 font-semibold mb-4">
+                    Toca "Añadir idea" para empezar.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  {pending.length === 0 && (
+                    <div className="bg-white p-6 rounded-3xl border border-gray-100 text-center shadow-sm">
+                      <div className="text-3xl mb-2">🎉</div>
+                      <p className="font-black text-gray-900">¡Todas las ideas terminadas!</p>
+                      <p className="text-sm text-gray-500 font-semibold">
+                        Añade más ideas o revisa las terminadas abajo.
+                      </p>
+                    </div>
+                  )}
+                  {pending.map((note) => (
+                    <div
+                      key={note.id}
+                      className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 flex items-center gap-3 group"
+                    >
+                      {/* Checkbox */}
+                      <button
+                        onClick={() => toggleNoteDone(activeProject, note.id)}
+                        className="w-6 h-6 rounded-full border-2 border-gray-300 hover:border-indigo-500 flex items-center justify-center flex-shrink-0 transition-all active:scale-90"
+                        aria-label="Marcar como terminada"
+                      />
+                      {/* Título inline editable */}
+                      <input
+                        type="text"
+                        value={note.title}
+                        onChange={(e) =>
+                          updateNote(activeProject, note.id, { title: e.target.value })
+                        }
+                        placeholder="Escribe tu idea..."
+                        className="flex-1 min-w-0 font-bold text-gray-900 bg-transparent focus:outline-none focus:bg-gray-50 rounded-lg px-2 py-1 text-base"
+                      />
+                      {/* Abrir detalle */}
+                      <button
+                        onClick={() =>
+                          setNoteEditor({ projectId: activeProject, note, isNew: false })
+                        }
+                        className="p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg flex-shrink-0 transition-colors"
+                        aria-label="Abrir detalle"
+                      >
+                        <ArrowRight size={18} strokeWidth={2.5} />
+                      </button>
+                    </div>
+                  ))}
+                </>
+              )}
+
+              {/* Botón añadir idea */}
+              <button
+                onClick={() => addNote(activeProject)}
+                className="flex items-center justify-center gap-2 p-3.5 rounded-2xl border-2 border-dashed border-gray-300 text-gray-500 hover:border-indigo-400 hover:text-indigo-600 hover:bg-indigo-50/50 transition font-bold active:scale-[0.99]"
+              >
+                <Plus size={18} /> Añadir idea
+              </button>
+
+              {/* Sección colapsable: terminadas */}
+              {completed.length > 0 && (
+                <div className="mt-4">
+                  <button
+                    onClick={() =>
+                      setShowCompleted((prev) => ({
+                        ...prev,
+                        [activeProject]: !prev[activeProject],
+                      }))
+                    }
+                    className="w-full flex items-center justify-between bg-white rounded-2xl border border-gray-100 px-4 py-3 hover:bg-gray-50 transition"
+                  >
+                    <span className="flex items-center gap-2 font-black text-gray-700">
+                      {isCompletedOpen ? (
+                        <ChevronDown size={18} />
+                      ) : (
+                        <ChevronUp size={18} className="rotate-180" />
+                      )}
+                      Terminadas
+                      <span className="text-xs font-black bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">
+                        {completed.length}
+                      </span>
+                    </span>
+                  </button>
+
+                  {isCompletedOpen && (
+                    <div className="flex flex-col gap-2 mt-3">
+                      {completed.map((note) => (
+                        <div
+                          key={note.id}
+                          className="bg-gray-50 rounded-2xl border border-gray-100 p-4 flex items-center gap-3"
+                        >
+                          {/* Checkbox marcado (clic para desmarcar) */}
+                          <button
+                            onClick={() => toggleNoteDone(activeProject, note.id)}
+                            className="w-6 h-6 rounded-full bg-emerald-500 border-2 border-emerald-500 hover:bg-emerald-600 flex items-center justify-center flex-shrink-0 transition-all active:scale-90"
+                            aria-label="Desmarcar"
+                          >
+                            <Check size={14} strokeWidth={4} className="text-white" />
+                          </button>
+                          <span className="flex-1 min-w-0 font-bold text-gray-500 line-through truncate text-sm">
+                            {note.title || '(sin título)'}
+                          </span>
+                          <button
+                            onClick={() =>
+                              setNoteEditor({ projectId: activeProject, note, isNew: false })
+                            }
+                            className="p-2 text-gray-400 hover:text-indigo-600 hover:bg-white rounded-lg flex-shrink-0"
+                          >
+                            <ArrowRight size={16} strokeWidth={2.5} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })()}
       </main>
 
       {/* ── BOTTOM NAV ── */}
+      {section === 'personales' && (
       <nav className="fixed bottom-0 w-full bg-white/90 backdrop-blur-md border-t border-gray-100 px-2 py-3 pb-6 z-40">
         <div className="flex justify-between items-center max-w-md mx-auto">
           {[
@@ -1550,6 +1786,33 @@ export default function App() {
           ))}
         </div>
       </nav>
+      )}
+
+      {/* Bottom nav: proyectos */}
+      {section === 'proyectos' && (
+        <nav className="fixed bottom-0 w-full bg-white/90 backdrop-blur-md border-t border-gray-100 px-3 py-3 pb-6 z-40">
+          <div className="flex gap-2 max-w-md mx-auto">
+            {PROJECTS.map((p) => {
+              const Icon = PROJECT_ICON_MAP[p.icon] || FolderKanban;
+              const active = activeProject === p.id;
+              return (
+                <button
+                  key={p.id}
+                  onClick={() => setActiveProject(p.id)}
+                  className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl font-black text-sm transition-all ${
+                    active
+                      ? 'bg-indigo-600 text-white shadow-md shadow-indigo-200'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                >
+                  <Icon size={18} strokeWidth={active ? 2.5 : 2} />
+                  {p.name}
+                </button>
+              );
+            })}
+          </div>
+        </nav>
+      )}
 
       {/* ── MODALES ── */}
       {showSettings && (
@@ -1586,6 +1849,35 @@ export default function App() {
             setShowMealEd(false);
             showToast('Plan actualizado');
           }}
+        />
+      )}
+
+      {noteEditor && (
+        <NoteEditorModal
+          projectId={noteEditor.projectId}
+          note={noteEditor.note}
+          isNew={noteEditor.isNew}
+          onClose={() => {
+            // Si era nueva y el título quedó vacío, eliminarla
+            if (noteEditor.isNew) {
+              const current = (notes[noteEditor.projectId] || []).find(
+                (n) => n.id === noteEditor.note.id
+              );
+              if (current && !current.title.trim() && !current.desc.trim()) {
+                deleteNote(noteEditor.projectId, noteEditor.note.id);
+              }
+            }
+            setNoteEditor(null);
+          }}
+          onSave={(fields) => {
+            updateNote(noteEditor.projectId, noteEditor.note.id, fields);
+            setNoteEditor(null);
+            showToast('Idea guardada');
+          }}
+          onDelete={() => askDeleteNote(noteEditor.projectId, noteEditor.note.id)}
+          projectName={
+            PROJECTS.find((p) => p.id === noteEditor.projectId)?.name || ''
+          }
         />
       )}
 
@@ -2124,6 +2416,101 @@ function MealEditorModal({ plan, onClose, onSave }) {
             className="flex-1 py-3 rounded-xl bg-indigo-600 text-white font-bold hover:bg-indigo-700"
           >
             Guardar cambios
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+//  MODAL: Detalle / edición de nota
+// ─────────────────────────────────────────────
+function NoteEditorModal({ projectId, note, isNew, projectName, onClose, onSave, onDelete }) {
+  const [title, setTitle] = useState(note.title || '');
+  const [desc, setDesc] = useState(note.desc || '');
+  const titleRef = useRef(null);
+
+  useEffect(() => {
+    // Si es nueva, hacer focus automático en el título
+    if (isNew && titleRef.current) {
+      setTimeout(() => titleRef.current?.focus(), 100);
+    }
+  }, [isNew]);
+
+  const handleSave = () => {
+    onSave({ title: title.trim(), desc: desc.trim() });
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[90] flex items-end sm:items-center justify-center p-4 font-nunito">
+      <div className="bg-white rounded-3xl w-full max-w-md shadow-xl overflow-hidden flex flex-col max-h-[90vh]">
+        <div className="flex justify-between items-center p-5 border-b border-gray-100">
+          <div className="min-w-0 flex-1">
+            <p className="text-[10px] font-black text-indigo-600 uppercase tracking-wider mb-0.5">
+              {projectName}
+            </p>
+            <h3 className="font-black text-xl text-gray-900 truncate">
+              {isNew ? 'Nueva idea' : 'Editar idea'}
+            </h3>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-1 text-gray-400 hover:text-gray-600 flex-shrink-0 ml-2"
+          >
+            <X size={24} />
+          </button>
+        </div>
+
+        <div className="p-5 overflow-y-auto flex flex-col gap-4 flex-1">
+          <div>
+            <label className="text-xs font-bold text-gray-500 mb-1 block">
+              Idea
+            </label>
+            <input
+              ref={titleRef}
+              type="text"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="Ej. Video sobre KPIs básicos"
+              className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 font-bold text-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+          </div>
+          <div className="flex-1 flex flex-col">
+            <label className="text-xs font-bold text-gray-500 mb-1 block">
+              Descripción / notas
+            </label>
+            <textarea
+              value={desc}
+              onChange={(e) => setDesc(e.target.value)}
+              placeholder="Detalles, guion, referencias, links..."
+              rows={8}
+              className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 font-semibold text-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
+            />
+          </div>
+        </div>
+
+        <div className="p-5 border-t border-gray-100 flex gap-3">
+          {!isNew && (
+            <button
+              onClick={onDelete}
+              className="p-3 rounded-xl bg-red-50 text-red-600 font-bold hover:bg-red-100 active:scale-95 transition"
+              aria-label="Eliminar"
+            >
+              <Trash2 size={18} />
+            </button>
+          )}
+          <button
+            onClick={onClose}
+            className="flex-1 py-3 rounded-xl bg-gray-100 text-gray-700 font-bold hover:bg-gray-200"
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={handleSave}
+            className="flex-1 py-3 rounded-xl bg-indigo-600 text-white font-bold hover:bg-indigo-700"
+          >
+            Guardar
           </button>
         </div>
       </div>
